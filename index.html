@@ -186,7 +186,7 @@ function config(){return{url:$('sbUrl').value.trim().replace(/\/+$/,''),key:$('s
 function setStatus(s){$('syncStatus').textContent=s}
 function initClient(){
  const c=config();if(!c.url||!c.key){supabaseClient=null;return false}
- try{supabaseClient=window.supabase.createClient(c.url,c.key);return true}catch(e){supabaseClient=null;setStatus('Cấu hình chưa đúng. Kiểm tra URL và publishable key.');return false}
+ try{supabaseClient=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});return true}catch(e){supabaseClient=null;setStatus('Cấu hình chưa đúng. Kiểm tra URL và publishable key.');return false}
 }
 function setRealtime(){
  if(realtimeChannel&&supabaseClient){supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null}
@@ -262,7 +262,7 @@ async function deleteRecord(id){
  await loadRecords();
 }
 async function auth(action){
- if(!initClient()){alert('Mở Cài đặt, nhập Project URL và Publishable Key rồi bấm Lưu cấu hình.');return}
+ if(!supabaseClient&&!initClient()){alert('Mở Cài đặt, nhập Project URL và Publishable Key rồi bấm Lưu cấu hình.');return}
  const email=$('email').value.trim(),password=$('password').value;if(!email||!password){alert('Vui lòng nhập email và mật khẩu.');return}
  const res=action==='in'?await supabaseClient.auth.signInWithPassword({email,password}):await supabaseClient.auth.signUp({email,password});
  if(res.error){alert(res.error.message);return}

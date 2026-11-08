@@ -92,10 +92,20 @@ drop policy if exists "user can read own hui" on public.hui_customers;
 drop policy if exists "user can insert own hui" on public.hui_customers;
 drop policy if exists "user can update own hui" on public.hui_customers;
 drop policy if exists "user can delete own hui" on public.hui_customers;
-create policy "user can read own hui" on public.hui_customers for select to authenticated using (auth.uid() = user_id);
-create policy "user can insert own hui" on public.hui_customers for insert to authenticated with check (auth.uid() = user_id);
-create policy "user can update own hui" on public.hui_customers for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "user can delete own hui" on public.hui_customers for delete to authenticated using (auth.uid() = user_id);</textarea>
+drop policy if exists "hui read all signed in" on public.hui_customers;
+drop policy if exists "hui insert primary only" on public.hui_customers;
+drop policy if exists "hui update primary only" on public.hui_customers;
+drop policy if exists "hui delete primary only" on public.hui_customers;
+-- Tất cả tài khoản đã đăng nhập được xem dữ liệu chung
+create policy "hui read all signed in" on public.hui_customers for select to authenticated using (true);
+-- Chỉ tài khoản điện thoại chính được thêm, sửa, xóa
+create policy "hui insert primary only" on public.hui_customers for insert to authenticated
+with check (lower(coalesce(auth.jwt()->>'email','')) = 'trunghaupro90@gmail.com');
+create policy "hui update primary only" on public.hui_customers for update to authenticated
+using (lower(coalesce(auth.jwt()->>'email','')) = 'trunghaupro90@gmail.com')
+with check (lower(coalesce(auth.jwt()->>'email','')) = 'trunghaupro90@gmail.com');
+create policy "hui delete primary only" on public.hui_customers for delete to authenticated
+using (lower(coalesce(auth.jwt()->>'email','')) = 'trunghaupro90@gmail.com');</textarea>
    <button class="secondary" id="copySql" style="width:100%;margin-top:8px" type="button">Sao chép SQL</button>
   </div>
   <div class="grid">
@@ -108,6 +118,7 @@ create policy "user can delete own hui" on public.hui_customers for delete to au
    <button class="danger" id="signOut" type="button">Thoát</button>
   </div>
   <div class="status" id="syncStatus">Chưa kết nối. Dữ liệu mới sẽ lưu trên iPhone này.</div>
+  <div class="status" id="roleNotice">🔒 Đăng nhập để xem quyền tài khoản.</div>
  </section>
 
  <section class="card" id="listPanel">
@@ -155,7 +166,10 @@ create policy "user can delete own hui" on public.hui_customers for delete to au
 </main>
 <script>
 const $=id=>document.getElementById(id);
+const PRIMARY_EMAIL='trunghaupro90@gmail.com';
 let supabaseClient=null,currentUser=null,records=[],realtimeChannel=null;
+function isPrimary(){return !!currentUser && String(currentUser.email||'').trim().toLowerCase()===PRIMARY_EMAIL; }
+function updateRoleUI(){const owner=isPrimary();$('addToggle').classList.toggle('hidden',!owner);$('formPanel').classList.add('hidden');$('roleNotice').textContent=currentUser?(owner?'🔐 Tài khoản điện thoại chính: được thêm, sửa và xóa.':'👁️ Tài khoản xem: chỉ được xem, không thể thêm, sửa hoặc xóa.'):'🔒 Hãy đăng nhập tài khoản điện thoại chính để quản lý dữ liệu.';}
 const money=n=>new Intl.NumberFormat('vi-VN').format(Number(n)||0)+'đ';
 const dateFmt=s=>{if(!s)return '—';const [y,m,d]=s.split('-');return `${Number(d)}/${Number(m)}/${y}`};
 function addDays(dateStr,days){const [y,m,d]=dateStr.split('-').map(Number);const x=new Date(y,m-1,d);x.setDate(x.getDate()+Number(days));return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`}
@@ -178,7 +192,7 @@ function setRealtime(){
  if(realtimeChannel&&supabaseClient){supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null}
  if(!supabaseClient||!currentUser)return;
  realtimeChannel=supabaseClient.channel('hui-customers-live')
- .on('postgres_changes',{event:'*',schema:'public',table:'hui_customers',filter:'user_id=eq.'+currentUser.id},()=>loadRecords(false))
+ .on('postgres_changes',{event:'*',schema:'public',table:'hui_customers'},()=>loadRecords(false))
  .subscribe();
 }
 async function loadRecords(showStatus=true){
@@ -193,6 +207,7 @@ function endDate(r){return addDays(r.start_date,Number(r.total_days))}
 function remain(r){const e=endDate(r).split('-').map(Number),t=new Date();t.setHours(0,0,0,0);return Math.ceil((new Date(e[0],e[1]-1,e[2])-t)/86400000)}
 function escapeHtml(value){return String(value??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));}
 function render(){
+ const owner=isPrimary();
  const q=$('search').value.trim().toLocaleLowerCase('vi'),shown=records.filter(r=>(r.customer_name||'').toLocaleLowerCase('vi').includes(q));
  $('count').textContent=records.length;$('sumAmount').textContent=money(records.reduce((a,r)=>a+Number(r.amount||0),0));$('soon').textContent=records.filter(r=>remain(r)>=0&&remain(r)<=10).length;
  $('dailyTotal').textContent=money(records.filter(r=>remain(r)>=0).reduce((sum,r)=>sum+Number(r.daily_amount||0),0));
@@ -213,16 +228,17 @@ function render(){
   const p2=document.createElement('p');p2.textContent='Bắt đầu: '+dateFmt(r.start_date)+' · Mãn hụi: '+dateFmt(end);
   const p3=document.createElement('p');p3.textContent='Đóng mỗi ngày: '+money(r.daily_amount||0)+' · Số phần: '+(r.shares||1)+' · '+((r.hui_type||'hui_ngay')==='hui_dung'?'Hụi đứng':'Hụi ngày');
   const p4=document.createElement('p');p4.textContent='Nợ quá hạn: '+(r.overdue_days||0)+' ngày';if(Number(r.overdue_days||0)>0){p4.style.color='var(--red)';p4.style.fontWeight='700'}
-  const actions=document.createElement('div');actions.className='row';
+  if(owner){const actions=document.createElement('div');actions.className='row';
   const edit=document.createElement('button');edit.className='secondary';edit.textContent='Sửa';edit.onclick=()=>editRecord(r);
   const del=document.createElement('button');del.className='danger';del.textContent='Xóa';del.onclick=()=>deleteRecord(r.id);
-  actions.append(edit,del);el.append(top,p,p2,p3,p4,actions);$('list').append(el);
+  actions.append(edit,del);el.append(top,p,p2,p3,p4,actions);}else{el.append(top,p,p2,p3,p4);}$('list').append(el);
  });
 }
 function showForm(open){$('formPanel').classList.toggle('hidden',!open);$('addToggle').classList.toggle('hidden',open);if(open)$('formPanel').scrollIntoView({behavior:'smooth',block:'start'})}
 function resetForm(){['recordId','customer','amount','dailyAmount','days','startDate'].forEach(k=>$(k).value='');$('shares').value='1';$('huiType').value='hui_ngay';$('overdueDays').value='0';$('formTitle').textContent='➕ Thêm khách hàng / dây hụi';calc();localStorage.removeItem('huiDraft')}
 function editRecord(r){$('recordId').value=r.id;$('customer').value=r.customer_name;$('amount').value=r.amount;$('dailyAmount').value=r.daily_amount||0;$('shares').value=r.shares||1;$('huiType').value=r.hui_type||'hui_ngay';$('overdueDays').value=r.overdue_days||0;$('days').value=r.total_days;$('startDate').value=r.start_date;$('formTitle').textContent='✏️ Sửa thông tin khách hàng';calc();showForm(true)}
 async function saveRecord(){
+ if(!isPrimary()){alert('Tài khoản này chỉ được xem. Chỉ điện thoại chính mới được thêm hoặc sửa.');return}
  const customer_name=$('customer').value.trim(),amount=Number($('amount').value),total_days=parseInt($('days').value),start_date=$('startDate').value,id=$('recordId').value;
  if(!customer_name||!start_date||!Number.isFinite(amount)||amount<0||!Number.isInteger(total_days)||total_days<1){alert('Vui lòng nhập tên khách, số tiền, tổng số ngày và ngày bắt đầu hợp lệ.');return}
  const daily_amount=Number($('dailyAmount').value||0),shares=parseInt($('shares').value||1),hui_type=$('huiType').value,overdue_days=parseInt($('overdueDays').value||0);
@@ -239,6 +255,7 @@ async function saveRecord(){
  resetForm();showForm(false);await loadRecords();
 }
 async function deleteRecord(id){
+ if(!isPrimary()){alert('Tài khoản này không có quyền xóa.');return}
  if(!confirm('Bạn chắc chắn muốn xóa dây hụi này?'))return;
  if(supabaseClient&&currentUser){const{error}=await supabaseClient.from('hui_customers').delete().eq('id',id);if(error){alert(error.message);return}}
  else{records=records.filter(r=>r.id!==id);localStorage.setItem('huiLocalRecords',JSON.stringify(records))}
@@ -251,9 +268,9 @@ async function auth(action){
  if(res.error){alert(res.error.message);return}
  currentUser=res.data.user;
  if(action==='up'&&!res.data.session){setStatus('Đã đăng ký. Kiểm tra email xác nhận, sau đó đăng nhập.');return}
- setStatus('Đã đăng nhập: '+email+'. Đang tải dữ liệu dùng chung.');setRealtime();await loadRecords();
+ updateRoleUI();setStatus('Đã đăng nhập: '+email+'. Đang tải dữ liệu dùng chung.');setRealtime();await loadRecords();
 }
-async function signOut(){if(supabaseClient)await supabaseClient.auth.signOut();if(realtimeChannel&&supabaseClient)supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null;currentUser=null;setStatus('Đã thoát. Dữ liệu cục bộ trên iPhone này vẫn còn.');await loadRecords()}
+async function signOut(){if(supabaseClient)await supabaseClient.auth.signOut();if(realtimeChannel&&supabaseClient)supabaseClient.removeChannel(realtimeChannel);realtimeChannel=null;currentUser=null;updateRoleUI();setStatus('Đã thoát tài khoản. Vui lòng đăng nhập để xem dữ liệu.');await loadRecords()}
 $('settingsToggle').onclick=()=>$('settingsPanel').classList.toggle('hidden');
 $('closeSettings').onclick=()=>$('settingsPanel').classList.add('hidden');
 $('addToggle').onclick=()=>showForm(true);$('closeForm').onclick=()=>showForm(false);
@@ -265,7 +282,7 @@ $('saveRecord').onclick=saveRecord;$('resetForm').onclick=resetForm;$('refresh')
 ['customer','amount','dailyAmount','shares','huiType','overdueDays','days','startDate'].forEach(k=>$(k).addEventListener('input',()=>{draft();calc()}));
 try{const c=JSON.parse(localStorage.getItem('huiSupabaseConfig')||'{}');$('sbUrl').value=c.url||'';$('sbKey').value=c.key||''}catch(e){}
 restoreDraft();initClient();showForm(false);
-if(supabaseClient){supabaseClient.auth.getSession().then(async({data})=>{currentUser=data.session?.user||null;if(currentUser){setStatus('Đã kết nối tài khoản '+currentUser.email+'.');setRealtime()}else setStatus('Chưa đăng nhập. Dữ liệu cục bộ trên iPhone này vẫn được giữ.');await loadRecords()})}else loadRecords();
+if(supabaseClient){supabaseClient.auth.getSession().then(async({data})=>{currentUser=data.session?.user||null;if(currentUser){updateRoleUI();setStatus('Đã kết nối tài khoản '+currentUser.email+'.');setRealtime()}else{updateRoleUI();setStatus('Chưa đăng nhập.');}await loadRecords()})}else loadRecords();
 </script>
 </body>
 </html>

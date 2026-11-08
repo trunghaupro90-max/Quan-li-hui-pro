@@ -116,6 +116,7 @@ create policy "user can delete own hui" on public.hui_customers for delete to au
   <div class="stats" style="margin-top:12px">
    <div class="stat"><span class="small">Tổng khách</span><b id="count">0</b></div>
    <div class="stat"><span class="small">Tổng tiền hụi</span><b id="sumAmount">0đ</b></div>
+   <div class="stat"><span class="small">💰 Tổng tiền đóng mỗi ngày (dây đang chơi)</span><b id="dailyTotal">0đ</b></div>
    <div class="stat"><span class="small">Sắp mãn (10 ngày)</span><b id="soon">0</b></div>
   </div>
   <div id="dueAlert" class="due-alert hidden" role="status" aria-live="polite"></div>
@@ -194,6 +195,7 @@ function escapeHtml(value){return String(value??'').replace(/[&<>\"']/g,c=>({'&'
 function render(){
  const q=$('search').value.trim().toLocaleLowerCase('vi'),shown=records.filter(r=>(r.customer_name||'').toLocaleLowerCase('vi').includes(q));
  $('count').textContent=records.length;$('sumAmount').textContent=money(records.reduce((a,r)=>a+Number(r.amount||0),0));$('soon').textContent=records.filter(r=>remain(r)>=0&&remain(r)<=10).length;
+ $('dailyTotal').textContent=money(records.filter(r=>remain(r)>=0).reduce((sum,r)=>sum+Number(r.daily_amount||0),0));
  const due=records.filter(r=>remain(r)>=0&&remain(r)<=10).sort((a,b)=>remain(a)-remain(b));
  const late=records.filter(r=>remain(r)<0);
  const alertBox=$('dueAlert');
